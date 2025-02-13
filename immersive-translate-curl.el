@@ -70,6 +70,14 @@ CONTENT is the data to send, TOKEN is a unique identifier."
   :group 'immersive-translate-curl
   :type '(alist :key-type symbol :value-type function))
 
+(defun immersive-translate-curl--filter (proc output)
+  "Process filter for curl output.
+Accumulate OUTPUT from PROC in the process buffer."
+  (when (buffer-live-p (process-buffer proc))
+    (with-current-buffer (process-buffer proc)
+      (goto-char (point-max))
+      (insert output))))
+
 (defun immersive-translate-curl--parse-response (buf token service)
   "Parse the buffer BUF with curl's response.
 
@@ -133,7 +141,7 @@ PROCESS and _STATUS are process parameters."
         (plist-put proc-info :status http-msg)
         (when error (plist-put proc-info :error error))
         (when (and (plist-get proc-info :retry)
-                   (or (string-empty-p response)
+                   (or (null response) (string-empty-p response)
                        (get-text-property 0 'error response)))
           (setq response (concat
                           response
@@ -141,7 +149,7 @@ PROCESS and _STATUS are process parameters."
                           immersive-translate-failed-message))
           (funcall proc-callback response proc-info))
         (when (and proc-content
-                   (or (string-empty-p response)
+                   (or (null response) (string-empty-p response)
                        (get-text-property 0 'error response))
                    (not (plist-get proc-info :retry)))
           (plist-put proc-info :retry t)
@@ -167,18 +175,30 @@ the response is inserted into the current buffer after point."
                              (recent-keys))))
          (func (alist-get service immersive-translate-curl-get-args-alist))
          (args (funcall func (plist-get info :content) token))
-         (process (apply #'start-process "immersive-translate-curl"
-                         (generate-new-buffer "*immersive-translate-curl*") "curl" args)))
-    (with-current-buffer (process-buffer process)
-      (set-process-query-on-exit-flag process nil)
-      (setf (alist-get process immersive-translate--process-alist)
-            (nconc (list
-                    :token token
-                    :service service
-                    :callback (or callback
-                                  #'immersive-translate-callback))
-                   info))
-      (set-process-sentinel process #'immersive-translate-curl--sentinel))))
+
+         (_ (let ((buffer (get-buffer " *immersive-translate-curl*")))
+              (when (buffer-live-p buffer) (with-current-buffer buffer (erase-buffer)))))
+
+         ;; FIXME: process returned output (JSON object) does not insert into
+         ;; process buffer to be parsed by
+         ;; `immersive-translate-curl--parse-response'.
+         ;; (process (apply #'start-process "immersive-translate-curl" " *immersive-translate-curl*" "curl" args))
+         (process (make-process
+                   :name "immersive-translate-curl"
+                   :buffer " *immersive-translate-curl*"
+                   :stderr " *immersive-translate-curl*"
+                   :command (cons "curl" args)
+                   :noquery t
+                   :filter #'immersive-translate-curl--filter
+                   :sentinel #'immersive-translate-curl--sentinel))
+         )
+    (setf (alist-get process immersive-translate--process-alist)
+          (nconc (list
+                  :token token
+                  :service service
+                  :callback (or callback #'immersive-translate-callback))
+                 info))
+    process))
 
 (provide 'immersive-translate-curl)
 ;;; immersive-translate-curl.el ends here

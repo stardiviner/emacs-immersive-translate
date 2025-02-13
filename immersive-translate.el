@@ -19,6 +19,7 @@
 (require 'auth-source)
 (require 'text-property-search)
 (require 'immersive-translate-baidu)
+(require 'immersive-translate-ollama)
 (require 'immersive-translate-chatgpt)
 (require 'immersive-translate-trans)
 (require 'immersive-translate-deepl)
@@ -45,12 +46,14 @@ The current options are
 - deepl"
   :group 'immersive-translate
   :type '(choice
+          (const :tag "Ollama" ollama)
           (const :tag "ChatGPT" chatgpt)
           (const :tag "Baidu" baidu)
           (const :tag "translate-shell" trans)))
 
 (defcustom immersive-translate-backend-alist
   '((baidu . immersive-translate-baidu-translate)
+    (ollama . immersive-translate-ollama-translate)
     (chatgpt . immersive-translate-chatgpt-translate)
     (trans . immersive-translate-trans-translate)
     (deepl . immersive-translate-deepl-translate))
@@ -611,9 +614,10 @@ of `immersive-translate-backend' is used."
     (unless (immersive-translate-disable-p)
       (when-let* ((paragraph (immersive-translate-join-lin
                               (immersive-translate--get-paragraph)))
-                  (content (if (eq immersive-translate-backend 'chatgpt)
-                               (immersive-translate-chatgpt-create-prompt paragraph)
-                             paragraph))
+                  (content (cl-case immersive-translate-backend
+                             (chatgpt (immersive-translate-chatgpt-create-prompt paragraph))
+                             (ollama (immersive-translate-ollama-create-prompt paragraph))
+                             (t paragraph)))
                   (ov t))
         (immersive-translate-end-of-paragraph)
         (if (immersive-translate--cache-p content)
